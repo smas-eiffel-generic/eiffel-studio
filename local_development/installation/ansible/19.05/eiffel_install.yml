@@ -1,0 +1,86 @@
+---
+# This Ansible playbook is intended to install Eiffel Studio 19.05 on a local development Linux target OS.
+#
+#--- To use this playbook, use the following command at the location of this playbook file:
+#---
+#---   ansible-playbook eiffel_install.yml --connection=local --ask-become-pass
+#---
+#--- Explanation:
+#--- The playbook works without an Ansible inventory file and is targetted only to localhost.
+#--- While the playbook needs root rights for installing in the /opt folder and making adjustments to /etc/profile a
+#--- password is asked interactively, without it the playbook will fail.
+#---
+#---
+- hosts: 127.0.0.1
+  gather_facts: no
+  become: yes
+
+  tasks:
+  
+    - name: Recursively remove any existing installation
+      shell: rm -rf /opt/estudio_19.05
+      args:
+         warn: false
+
+    - name: Git checkout of Eiffel environment libraries
+      git:
+         repo: 'https://github.com/smas-external-eiffel/eiffelstudio-19.05.git'
+         dest: /opt/estudio_19.05
+         force: yes
+
+    - name: Download EiffelStudio from Sourceforge
+      get_url:
+         url: https://downloads.sourceforge.net/project/eiffelstudio/EiffelStudio%2019.05/Build_103187/Eiffel_19.05_gpl_103187-linux-x86-64.tar.bz2
+         dest: /tmp
+
+    - name: Unarchive the downloaded EiffelStudio package
+      unarchive:
+         src: /tmp/Eiffel_19.05_gpl_103187-linux-x86-64.tar.bz2
+         dest: /tmp
+
+    - name: Copy Eiffel binairies from unarchived package to estudio environment
+      copy:
+         src: /tmp/Eiffel_19.05/studio/spec/linux-x86-64/bin
+         dest: /opt/estudio_19.05/studio/spec/linux-x86-64
+
+    - name: Change file ownership, group and permissions from Eiffel environment
+      file:
+        path: /opt/estudio_19.05
+        owner: dev
+        group: dev
+        recurse: yes
+        mode: '0755'
+
+    - name: Create a symbolic link
+      file:
+        src: /opt/estudio_19.05
+        dest: /opt/estudio
+        owner: dev
+        group: dev
+        state: link
+        force: yes
+
+    - name: Recursively remove directory
+      shell: rm -rf /tmp/Eiffel*
+      args:
+         warn: false
+
+    - name: Set Eiffel environment variables to /etc/profile
+      lineinfile:
+        dest: "{{ item.dest }}"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      with_items:
+        - { dest: '/etc/profile', regexp: 'export ISE_EIFFEL=', line: 'export ISE_EIFFEL=/opt/estudio' }
+        - { dest: '/etc/profile', regexp: 'export ISE_LIBRARY=', line: 'export ISE_LIBRARY=/opt/estudio' }
+        - { dest: '/etc/profile', regexp: 'export ISE_PLATFORM=', line: 'export ISE_PLATFORM=linux-x86-64' }
+        - { dest: '/etc/profile', regexp: 'export MYSQLINC=', line: 'export MYSQLINC=/usr/include/mysql' }
+        - { dest: '/etc/profile', regexp: 'export MYSQLLIB=', line: 'export MYSQLLIB=/lib' }
+        - { dest: '/etc/profile', regexp: 'export PATH=$PATH', line: 'export PATH=$PATH:$ISE_EIFFEL/studio/spec/$ISE_PLATFORM/bin:$ISE_EIFFEL/tools/spec/$ISE_PLATFORM/bin:$ISE_EIFFEL/library/gobo/spec/$ISE_PLATFORM/bin:$ISE_EIFFEL/esbuilder/spec/$ISE_PLATFORM/bin' }
+        
+    - name: Finish freezing of eiffel c libraries to become available for Payplaza software products
+      shell: . {{item.env}} && cd {{item.dest}} && {{item.finish_freezing}}
+      with_items:
+        - { env: '/etc/profile', dest: '$ISE_EIFFEL/library/store/dbms/rdbms/mysql/Clib', finish_freezing: 'finish_freezing -library' }
+        - { env: '/etc/profile', dest: '$ISE_EIFFEL/library/cURL/Clib/', finish_freezing: 'finish_freezing -library' }
+        - { env: '/etc/profile', dest: '$ISE_EIFFEL/library/net/Clib/', finish_freezing: 'finish_freezing -library' }
